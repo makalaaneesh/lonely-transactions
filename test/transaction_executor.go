@@ -123,7 +123,6 @@ func (t *Txn) run(barriers map[string]chan struct{}, debug bool) {
 			<-barriers[op.barrierName]
 			if debug {
 				fmt.Printf("[%s] (%d) UNBLOCKED from %s\n", t.name, op.opIndex, op.barrierName)
-				t.db.PrintState()
 			}
 		}
 	}
@@ -229,6 +228,19 @@ func (t *Txn) WaitFor(barrierName string) {
 	t.addOp(operation{
 		kind:        opWaitFor,
 		barrierName: barrierName,
+	})
+}
+
+// PrintDbState schedules a database state print operation for debugging
+func (t *Txn) PrintDbState() {
+	t.addOp(operation{
+		kind:        opDatabase,
+		description: "PRINT_DB_STATE",
+		fn: func() error {
+			fmt.Printf("(%s) ", t.name)
+			t.db.PrintState()
+			return nil
+		},
 	})
 }
 

@@ -157,13 +157,14 @@ func TestSequentialOperations(t *testing.T) {
 	txn1 := exec.NewTxn("txn1")
 	txn1.BeginTx()
 	txn1.Set(5, 500)
+	txn1.PrintDbState() // Print state after set
 	txn1.Get(5)
 	txn1.Commit()
 
 	results := exec.Execute(false)
 
-	// Get is at index 2 (BeginTx=0, Set=1, Get=2)
-	value := results.Get("txn1", 2)
+	// Get is at index 3 (BeginTx=0, Set=1, PrintDbState=2, Get=3)
+	value := results.Get("txn1", 3)
 	if value != 500 {
 		t.Errorf("Expected to read 500, got %d", value)
 	}

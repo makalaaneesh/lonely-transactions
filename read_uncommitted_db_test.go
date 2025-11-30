@@ -7,7 +7,12 @@ import (
 	"github.com/makalaaneesh/lonely-transactions/test"
 )
 
-func TestReadUncommittedDirtyRead(t *testing.T) {
+func TestReadUncommittedDirtyReadAbort(t *testing.T) {
 	db := db.NewDatabaseReadUncommitted()
-	test.TestDirtyRead(t, db)
+	test.TestDirtyReadAbort(t, db)
+}
+
+func TestReadUncommittedDirtyReadCommit(t *testing.T) {
+	db := db.NewDatabaseReadUncommitted()
+	test.TestDirtyReadCommit(t, db)
 }

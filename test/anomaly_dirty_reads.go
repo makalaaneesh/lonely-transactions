@@ -6,7 +6,7 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func TestDirtyRead(t *testing.T, db Database) {
+func TestDirtyReadAbort(t *testing.T, db Database) {
 	exec := NewTxnsExecutor(db)
 
 	// Transaction 1: Begin, write 1 = 100, signal barrier, then rollback
@@ -32,4 +32,46 @@ func TestDirtyRead(t *testing.T, db Database) {
 	// Use the GetResult reference to retrieve the value
 	value := results.GetValue(txn2Read)
 	assert.Equal(t, 0, value) // Should not read the dirty value written by txn1
+}
+
+func TestDirtyReadCommit(t *testing.T, db Database) {
+	exec := NewTxnsExecutor(db)
+
+	// Transaction 1: Begin, write 1 = 100, signal barrier, then commit
+	txn1 := exec.NewTxn("txn1")
+	txn1.BeginTx()
+	txn1.WaitFor("txn2_after_first_read")
+	txn1.Set(1, 100)
+	txn1.Barrier("txn1_after_write") // Signal that write is complete
+	txn1.WaitFor("txn2_after_second_read")
+	txn1.Commit()
+	txn1.Barrier("txn1_after_commit")
+
+	// Transaction2
+	txn2 := exec.NewTxn("txn2")
+	txn2.BeginTx()
+
+	read1 := txn2.Get(1)
+	txn2.Barrier("txn2_after_first_read")
+
+	txn2.WaitFor("txn1_after_write")
+	txn2.PrintDbState()
+	read2 := txn2.Get(1)
+	txn2.Barrier("txn2_after_second_read")
+
+	txn2.WaitFor("txn1_after_commit")
+	read3 := txn2.Get(1)
+	txn2.Barrier("txn2_after_third_read")
+
+	txn2.Commit()
+
+	results := exec.Execute(true)
+
+	value1 := results.GetValue(read1)
+	value2 := results.GetValue(read2)
+	value3 := results.GetValue(read3)
+
+	assert.Equal(t, 0, value1)
+	assert.Equal(t, 0, value2)
+	assert.Equal(t, 100, value3)
 }

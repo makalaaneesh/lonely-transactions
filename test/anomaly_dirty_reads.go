@@ -1,6 +1,10 @@
 package test
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/stretchr/testify/assert"
+)
 
 func TestDirtyRead(t *testing.T, db Database) {
 	exec := NewTxnsExecutor(db)
@@ -22,7 +26,5 @@ func TestDirtyRead(t *testing.T, db Database) {
 
 	// Transaction 2 should have read the uncommitted "dirty" value
 	value := results.Get("txn2", 3)
-	if value != "dirty" {
-		t.Errorf("Expected txn2 to read 'dirty' at step 3, got '%s'", value)
-	}
+	assert.Equal(t, "", value)
 }

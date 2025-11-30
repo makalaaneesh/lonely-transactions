@@ -175,14 +175,14 @@ func (s *TxnStepExecutor) BeginTx() {
 }
 
 // Set schedules a Set operation at this step
-func (s *TxnStepExecutor) Set(key, value string) {
+func (s *TxnStepExecutor) Set(key, value int) {
 	s.txn.scheduleOp(s.step, func() error {
 		return s.txn.db.Set(s.txn.txnId, key, value)
 	})
 }
 
 // Get schedules a Get operation at this step and captures the result
-func (s *TxnStepExecutor) Get(key string) {
+func (s *TxnStepExecutor) Get(key int) {
 	s.txn.scheduleOp(s.step, func() error {
 		value, err := s.txn.db.Get(s.txn.txnId, key)
 		if err != nil {
@@ -195,7 +195,7 @@ func (s *TxnStepExecutor) Get(key string) {
 }
 
 // Delete schedules a Delete operation at this step
-func (s *TxnStepExecutor) Delete(key string) {
+func (s *TxnStepExecutor) Delete(key int) {
 	s.txn.scheduleOp(s.step, func() error {
 		return s.txn.db.Delete(s.txn.txnId, key)
 	})
@@ -217,35 +217,35 @@ func (s *TxnStepExecutor) Rollback() {
 
 // Results stores the results of Get operations indexed by transaction name and step
 type Results struct {
-	data map[string]map[int]string
+	data map[string]map[int]int
 	mu   sync.RWMutex
 }
 
 // newResults creates a new Results storage
 func newResults() *Results {
 	return &Results{
-		data: make(map[string]map[int]string),
+		data: make(map[string]map[int]int),
 	}
 }
 
 // store saves a result for a specific transaction and step
-func (r *Results) store(txnName string, step int, value string) {
+func (r *Results) store(txnName string, step int, value int) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
 	if r.data[txnName] == nil {
-		r.data[txnName] = make(map[int]string)
+		r.data[txnName] = make(map[int]int)
 	}
 	r.data[txnName][step] = value
 }
 
 // Get retrieves the result of a Get operation for a specific transaction and step
-func (r *Results) Get(txnName string, step int) string {
+func (r *Results) Get(txnName string, step int) int {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
 	if txnData, ok := r.data[txnName]; ok {
 		return txnData[step]
 	}
-	return ""
+	return 0
 }

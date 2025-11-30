@@ -6,7 +6,7 @@ import (
 )
 
 type DatabaseReadUncommitted struct {
-	data       map[string]string
+	data       map[int]int
 	mu         sync.RWMutex
 	nextTxnId  int64
 	txnUndoOps map[int64][]func()
@@ -14,7 +14,7 @@ type DatabaseReadUncommitted struct {
 
 func NewDatabaseReadUncommitted() *DatabaseReadUncommitted {
 	return &DatabaseReadUncommitted{
-		data:       make(map[string]string),
+		data:       make(map[int]int),
 		mu:         sync.RWMutex{},
 		nextTxnId:  1,
 		txnUndoOps: make(map[int64][]func()),
@@ -31,7 +31,7 @@ func (d *DatabaseReadUncommitted) BeginTx(isolationLevel string) (int64, error) 
 	return txId, nil
 }
 
-func (d *DatabaseReadUncommitted) Set(txId int64, key string, value string) error {
+func (d *DatabaseReadUncommitted) Set(txId int64, key int, value int) error {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	oldValue, ok := d.data[key]
@@ -48,13 +48,13 @@ func (d *DatabaseReadUncommitted) Set(txId int64, key string, value string) erro
 	return nil
 }
 
-func (d *DatabaseReadUncommitted) Get(txId int64, key string) (string, error) {
+func (d *DatabaseReadUncommitted) Get(txId int64, key int) (int, error) {
 	d.mu.RLock()
 	defer d.mu.RUnlock()
 	return d.data[key], nil
 }
 
-func (d *DatabaseReadUncommitted) Delete(txId int64, key string) error {
+func (d *DatabaseReadUncommitted) Delete(txId int64, key int) error {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	oldValue, ok := d.data[key]
@@ -91,7 +91,7 @@ func (d *DatabaseReadUncommitted) PrintState() {
 	fmt.Println("--------------------------------")
 	fmt.Println("Database State:")
 	for key, value := range d.data {
-		fmt.Printf("  %s: %s\n", key, value)
+		fmt.Printf("  %d: %d\n", key, value)
 	}
 
 	fmt.Println("Txn Undo Ops:")

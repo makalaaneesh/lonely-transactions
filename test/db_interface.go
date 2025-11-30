@@ -7,4 +7,5 @@ type Database interface {
 	Delete(txId int64, key string) error
 	Commit(txId int64) error
 	Rollback(txId int64) error
+	PrintState()
 }

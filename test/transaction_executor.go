@@ -32,7 +32,6 @@ func NewTxnsExecutor(db Database) *TxnsExecutor {
 func (e *TxnsExecutor) NewTxn(name string) *Txn {
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	
 	txn := &Txn{
 		name:       name,
 		executor:   e,
@@ -46,7 +45,7 @@ func (e *TxnsExecutor) NewTxn(name string) *Txn {
 }
 
 // Execute runs all scheduled transactions concurrently with step-based coordination
-func (e *TxnsExecutor) Execute() *Results {
+func (e *TxnsExecutor) Execute(debug bool) *Results {
 	// Find the maximum step
 	maxStep := 0
 	for _, txn := range e.txns {
@@ -56,7 +55,7 @@ func (e *TxnsExecutor) Execute() *Results {
 			}
 		}
 	}
-	
+
 	// Start a goroutine for each transaction
 	var wg sync.WaitGroup
 	for _, txn := range e.txns {
@@ -66,7 +65,7 @@ func (e *TxnsExecutor) Execute() *Results {
 			t.run()
 		}(txn)
 	}
-	
+
 	// Coordinate step-by-step execution
 	for currentStep := 0; currentStep <= maxStep; currentStep++ {
 		// Find transactions that have operations at this step
@@ -76,26 +75,30 @@ func (e *TxnsExecutor) Execute() *Results {
 				txnsAtStep = append(txnsAtStep, txn)
 			}
 		}
-		
+
 		// Signal all of them simultaneously to start this step
 		for _, txn := range txnsAtStep {
 			txn.stepSignal <- currentStep
 		}
-		
+
 		// Wait for all of them to complete this step
 		for _, txn := range txnsAtStep {
 			<-txn.done
 		}
+		if debug {
+			fmt.Println("After step", currentStep)
+			e.db.PrintState()
+		}
 	}
-	
+
 	// Close all step signal channels to stop goroutines
 	for _, txn := range e.txns {
 		close(txn.stepSignal)
 	}
-	
+
 	// Wait for all goroutines to finish
 	wg.Wait()
-	
+
 	return e.resultStore
 }
 
@@ -229,7 +232,7 @@ func newResults() *Results {
 func (r *Results) store(txnName string, step int, value string) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	
+
 	if r.data[txnName] == nil {
 		r.data[txnName] = make(map[int]string)
 	}
@@ -240,10 +243,9 @@ func (r *Results) store(txnName string, step int, value string) {
 func (r *Results) Get(txnName string, step int) string {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	
+
 	if txnData, ok := r.data[txnName]; ok {
 		return txnData[step]
 	}
 	return ""
 }
-

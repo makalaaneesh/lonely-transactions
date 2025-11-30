@@ -22,7 +22,7 @@ func TestDirtyRead(t *testing.T, db Database) {
 	txn2.At(5).Commit()
 
 	// Execute the scheduled operations
-	results := exec.Execute()
+	results := exec.Execute(true)
 
 	// Transaction 2 should have read the uncommitted "dirty" value
 	value := results.Get("txn2", 3)

@@ -1,6 +1,9 @@
 package db
 
-import "sync"
+import (
+	"fmt"
+	"sync"
+)
 
 type DatabaseReadUncommitted struct {
 	data       map[string]string
@@ -13,7 +16,7 @@ func NewDatabaseReadUncommitted() *DatabaseReadUncommitted {
 	return &DatabaseReadUncommitted{
 		data:       make(map[string]string),
 		mu:         sync.RWMutex{},
-		nextTxnId:  0,
+		nextTxnId:  1,
 		txnUndoOps: make(map[int64][]func()),
 	}
 }
@@ -80,4 +83,22 @@ func (d *DatabaseReadUncommitted) Rollback(txId int64) error {
 	}
 	delete(d.txnUndoOps, txId)
 	return nil
+}
+
+func (d *DatabaseReadUncommitted) PrintState() {
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+	fmt.Println("--------------------------------")
+	fmt.Println("Database State:")
+	for key, value := range d.data {
+		fmt.Printf("  %s: %s\n", key, value)
+	}
+
+	fmt.Println("Txn Undo Ops:")
+	for txId, ops := range d.txnUndoOps {
+		fmt.Printf("  Txn %d: %v\n", txId, ops)
+	}
+	fmt.Println("Next Txn ID:")
+	fmt.Printf("  %d\n", d.nextTxnId)
+	fmt.Println("--------------------------------")
 }

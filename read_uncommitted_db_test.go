@@ -16,3 +16,8 @@ func TestReadUncommittedDirtyReadCommit(t *testing.T) {
 	db := db.NewDatabaseReadUncommitted()
 	test.TestDirtyReadCommit(t, db)
 }
+
+func TestReadUncommittedDirtyWrite(t *testing.T) {
+	db := db.NewDatabaseReadUncommitted()
+	test.TestDirtyWrite(t, db)
+}

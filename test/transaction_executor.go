@@ -14,6 +14,12 @@ const (
 	opWaitFor                // WaitFor - waits for a named barrier
 )
 
+// GetResult is a reference to a Get operation's result
+type GetResult struct {
+	txnName string
+	opIndex int
+}
+
 // operation represents a single operation in a transaction
 type operation struct {
 	kind        opKind
@@ -164,9 +170,14 @@ func (t *Txn) Set(key, value int) {
 	})
 }
 
-// Get schedules a Get operation and captures the result
-func (t *Txn) Get(key int) {
+// Get schedules a Get operation and captures the result, returning a reference to retrieve it later
+func (t *Txn) Get(key int) *GetResult {
 	currentOpIndex := t.opCounter
+	result := &GetResult{
+		txnName: t.name,
+		opIndex: currentOpIndex,
+	}
+
 	t.addOp(operation{
 		kind:        opDatabase,
 		description: fmt.Sprintf("GET %d", key),
@@ -180,6 +191,8 @@ func (t *Txn) Get(key int) {
 			return nil
 		},
 	})
+
+	return result
 }
 
 // Delete schedules a Delete operation
@@ -277,4 +290,9 @@ func (r *Results) Get(txnName string, opIndex int) int {
 		return txnData[opIndex]
 	}
 	return 0
+}
+
+// GetValue retrieves the value using a GetResult reference
+func (r *Results) GetValue(ref *GetResult) int {
+	return r.Get(ref.txnName, ref.opIndex)
 }

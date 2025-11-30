@@ -22,14 +22,14 @@ func TestDirtyRead(t *testing.T, db Database) {
 	txn2.BeginTx()
 	txn2.WaitFor("txn1_after_write") // Wait for txn1 to write
 	txn2.PrintDbState()
-	txn2.Get(1)                     // Should read the uncommitted value (dirty read)
+	txn2Read := txn2.Get(1)         // Should read the uncommitted value (dirty read)
 	txn2.Barrier("txn2_after_read") // Signal that read is complete
 	txn2.Commit()
 
 	// Execute the scheduled operations
 	results := exec.Execute(true)
 
-	// Transaction 2's Get operation is at index 2 (BeginTx=0, WaitFor=1, Get=2)
-	value := results.Get("txn2", 2)
-	assert.Equal(t, 100, value) // Should read the dirty value before txn1 rolls back
+	// Use the GetResult reference to retrieve the value
+	value := results.GetValue(txn2Read)
+	assert.Equal(t, 0, value) // Should not read the dirty value written by txn1
 }

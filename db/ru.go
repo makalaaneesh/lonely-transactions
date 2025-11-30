@@ -11,15 +11,21 @@ type DatabaseReadUncommitted struct {
 
 func NewDatabaseReadUncommitted() *DatabaseReadUncommitted {
 	return &DatabaseReadUncommitted{
-		data: make(map[string]string),
-		mu:   sync.RWMutex{},
+		data:       make(map[string]string),
+		mu:         sync.RWMutex{},
+		nextTxnId:  0,
+		txnUndoOps: make(map[int64][]func()),
 	}
 }
 
 func (d *DatabaseReadUncommitted) BeginTx(isolationLevel string) (int64, error) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	return 0, nil
+	txId := d.nextTxnId
+	d.nextTxnId++
+
+	d.txnUndoOps[txId] = make([]func(), 0)
+	return txId, nil
 }
 
 func (d *DatabaseReadUncommitted) Set(txId int64, key string, value string) error {

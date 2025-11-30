@@ -5,16 +5,28 @@ import (
 	"sync"
 )
 
-// scheduledOp represents an operation scheduled at a specific step
-type scheduledOp struct {
-	step int
-	fn   func() error
+// opKind represents the type of operation
+type opKind int
+
+const (
+	opDatabase opKind = iota // Database operation (BeginTx, Set, Get, etc.)
+	opBarrier                // Barrier - signals a named synchronization point
+	opWaitFor                // WaitFor - waits for a named barrier
+)
+
+// operation represents a single operation in a transaction
+type operation struct {
+	kind        opKind
+	fn          func() error // For database operations
+	barrierName string       // For Barrier and WaitFor operations
+	opIndex     int          // Index of this operation in the transaction
 }
 
-// TxnsExecutor coordinates the execution of multiple transactions with deterministic step-based scheduling
+// TxnsExecutor coordinates the execution of multiple transactions with barrier-based synchronization
 type TxnsExecutor struct {
 	db          Database
 	txns        map[string]*Txn
+	barriers    map[string]chan struct{}
 	resultStore *Results
 	mu          sync.Mutex
 }
@@ -24,6 +36,7 @@ func NewTxnsExecutor(db Database) *TxnsExecutor {
 	return &TxnsExecutor{
 		db:          db,
 		txns:        make(map[string]*Txn),
+		barriers:    make(map[string]chan struct{}),
 		resultStore: newResults(),
 	}
 }
@@ -36,186 +49,182 @@ func (e *TxnsExecutor) NewTxn(name string) *Txn {
 		name:       name,
 		executor:   e,
 		db:         e.db,
-		operations: []scheduledOp{},
-		stepSignal: make(chan int),
-		done:       make(chan int),
+		operations: []operation{},
+		opCounter:  0,
 	}
 	e.txns[name] = txn
 	return txn
 }
 
-// Execute runs all scheduled transactions concurrently with step-based coordination
+// Execute runs all scheduled transactions concurrently with barrier-based coordination
 func (e *TxnsExecutor) Execute(debug bool) *Results {
-	// Find the maximum step
-	maxStep := 0
-	for _, txn := range e.txns {
-		for _, op := range txn.operations {
-			if op.step > maxStep {
-				maxStep = op.step
-			}
-		}
-	}
+	// Phase 1: Register all barriers
+	e.registerBarriers()
 
-	// Start a goroutine for each transaction
+	// Phase 2: Start transaction goroutines
 	var wg sync.WaitGroup
 	for _, txn := range e.txns {
 		wg.Add(1)
 		go func(t *Txn) {
 			defer wg.Done()
-			t.run()
+			t.run(e.barriers, debug)
 		}(txn)
 	}
 
-	// Coordinate step-by-step execution
-	for currentStep := 0; currentStep <= maxStep; currentStep++ {
-		// Find transactions that have operations at this step
-		txnsAtStep := []*Txn{}
-		for _, txn := range e.txns {
-			if txn.hasOpAtStep(currentStep) {
-				txnsAtStep = append(txnsAtStep, txn)
-			}
-		}
-
-		// Signal all of them simultaneously to start this step
-		for _, txn := range txnsAtStep {
-			txn.stepSignal <- currentStep
-		}
-
-		// Wait for all of them to complete this step
-		for _, txn := range txnsAtStep {
-			<-txn.done
-		}
-		if debug {
-			fmt.Println("After step", currentStep)
-			e.db.PrintState()
-		}
-	}
-
-	// Close all step signal channels to stop goroutines
-	for _, txn := range e.txns {
-		close(txn.stepSignal)
-	}
-
-	// Wait for all goroutines to finish
+	// Phase 3: Wait for all transactions to complete
 	wg.Wait()
 
 	return e.resultStore
 }
 
-// Txn represents a transaction handle that only exposes the At() method
+// registerBarriers scans all transactions and creates channels for all barrier names
+func (e *TxnsExecutor) registerBarriers() {
+	for _, txn := range e.txns {
+		for _, op := range txn.operations {
+			if op.kind == opBarrier {
+				e.barriers[op.barrierName] = make(chan struct{})
+			}
+		}
+	}
+}
+
+// Txn represents a transaction handle with direct operation methods
 type Txn struct {
 	name       string
 	executor   *TxnsExecutor
 	db         Database
 	txnId      int64
-	operations []scheduledOp
-	stepSignal chan int
-	done       chan int
+	operations []operation
+	opCounter  int
+	mu         sync.Mutex
 }
 
-// At returns a TxnStepExecutor for scheduling operations at the specified step
-func (t *Txn) At(step int) *TxnStepExecutor {
-	return &TxnStepExecutor{
-		txn:  t,
-		step: step,
-	}
-}
-
-// hasOpAtStep checks if this transaction has any operation scheduled at the given step
-func (t *Txn) hasOpAtStep(step int) bool {
+// run executes all operations for this transaction sequentially
+func (t *Txn) run(barriers map[string]chan struct{}, debug bool) {
 	for _, op := range t.operations {
-		if op.step == step {
-			return true
-		}
-	}
-	return false
-}
-
-// run is the goroutine function that executes operations for this transaction
-func (t *Txn) run() {
-	for step := range t.stepSignal {
-		// Execute all operations scheduled for this step
-		for _, op := range t.operations {
-			if op.step == step {
-				if err := op.fn(); err != nil {
-					// Store error (for now just print, could be improved)
-					fmt.Printf("Error in transaction %s at step %d: %v\n", t.name, step, err)
-				}
+		switch op.kind {
+		case opDatabase:
+			if err := op.fn(); err != nil {
+				fmt.Printf("Error in transaction %s at op %d: %v\n", t.name, op.opIndex, err)
+			}
+			if debug {
+				fmt.Printf("[%s] Completed database operation %d\n", t.name, op.opIndex)
+			}
+		case opBarrier:
+			close(barriers[op.barrierName])
+			if debug {
+				fmt.Printf("[%s] Signaled barrier: %s\n", t.name, op.barrierName)
+			}
+		case opWaitFor:
+			if debug {
+				fmt.Printf("[%s] Waiting for barrier: %s\n", t.name, op.barrierName)
+			}
+			<-barriers[op.barrierName]
+			if debug {
+				fmt.Printf("[%s] Unblocked from barrier: %s\n", t.name, op.barrierName)
 			}
 		}
-		// Signal completion of this step
-		t.done <- step
 	}
 }
 
-// scheduleOp adds an operation to be executed at the current step
-func (t *Txn) scheduleOp(step int, fn func() error) {
-	t.operations = append(t.operations, scheduledOp{
-		step: step,
-		fn:   fn,
+// addOp adds an operation to the transaction's operation list
+func (t *Txn) addOp(op operation) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	op.opIndex = t.opCounter
+	t.opCounter++
+	t.operations = append(t.operations, op)
+}
+
+// BeginTx schedules a BeginTx operation
+func (t *Txn) BeginTx() {
+	t.addOp(operation{
+		kind: opDatabase,
+		fn: func() error {
+			txnId, err := t.db.BeginTx("READ_UNCOMMITTED")
+			if err != nil {
+				return err
+			}
+			t.txnId = txnId
+			return nil
+		},
 	})
 }
 
-// TxnStepExecutor provides methods to schedule database operations at a specific step
-type TxnStepExecutor struct {
-	txn  *Txn
-	step int
-}
-
-// BeginTx schedules a BeginTx operation at this step
-func (s *TxnStepExecutor) BeginTx() {
-	s.txn.scheduleOp(s.step, func() error {
-		txnId, err := s.txn.db.BeginTx("READ_UNCOMMITTED")
-		if err != nil {
-			return err
-		}
-		s.txn.txnId = txnId
-		return nil
+// Set schedules a Set operation
+func (t *Txn) Set(key, value int) {
+	t.addOp(operation{
+		kind: opDatabase,
+		fn: func() error {
+			return t.db.Set(t.txnId, key, value)
+		},
 	})
 }
 
-// Set schedules a Set operation at this step
-func (s *TxnStepExecutor) Set(key, value int) {
-	s.txn.scheduleOp(s.step, func() error {
-		return s.txn.db.Set(s.txn.txnId, key, value)
+// Get schedules a Get operation and captures the result
+func (t *Txn) Get(key int) {
+	currentOpIndex := t.opCounter
+	t.addOp(operation{
+		kind: opDatabase,
+		fn: func() error {
+			value, err := t.db.Get(t.txnId, key)
+			if err != nil {
+				return err
+			}
+			// Store the result indexed by operation index
+			t.executor.resultStore.store(t.name, currentOpIndex, value)
+			return nil
+		},
 	})
 }
 
-// Get schedules a Get operation at this step and captures the result
-func (s *TxnStepExecutor) Get(key int) {
-	s.txn.scheduleOp(s.step, func() error {
-		value, err := s.txn.db.Get(s.txn.txnId, key)
-		if err != nil {
-			return err
-		}
-		// Store the result
-		s.txn.executor.resultStore.store(s.txn.name, s.step, value)
-		return nil
+// Delete schedules a Delete operation
+func (t *Txn) Delete(key int) {
+	t.addOp(operation{
+		kind: opDatabase,
+		fn: func() error {
+			return t.db.Delete(t.txnId, key)
+		},
 	})
 }
 
-// Delete schedules a Delete operation at this step
-func (s *TxnStepExecutor) Delete(key int) {
-	s.txn.scheduleOp(s.step, func() error {
-		return s.txn.db.Delete(s.txn.txnId, key)
+// Commit schedules a Commit operation
+func (t *Txn) Commit() {
+	t.addOp(operation{
+		kind: opDatabase,
+		fn: func() error {
+			return t.db.Commit(t.txnId)
+		},
 	})
 }
 
-// Commit schedules a Commit operation at this step
-func (s *TxnStepExecutor) Commit() {
-	s.txn.scheduleOp(s.step, func() error {
-		return s.txn.db.Commit(s.txn.txnId)
+// Rollback schedules a Rollback operation
+func (t *Txn) Rollback() {
+	t.addOp(operation{
+		kind: opDatabase,
+		fn: func() error {
+			return t.db.Rollback(t.txnId)
+		},
 	})
 }
 
-// Rollback schedules a Rollback operation at this step
-func (s *TxnStepExecutor) Rollback() {
-	s.txn.scheduleOp(s.step, func() error {
-		return s.txn.db.Rollback(s.txn.txnId)
+// Barrier creates a named synchronization point that other transactions can wait for
+func (t *Txn) Barrier(name string) {
+	t.addOp(operation{
+		kind:        opBarrier,
+		barrierName: name,
 	})
 }
 
-// Results stores the results of Get operations indexed by transaction name and step
+// WaitFor waits for a named barrier to be signaled
+func (t *Txn) WaitFor(barrierName string) {
+	t.addOp(operation{
+		kind:        opWaitFor,
+		barrierName: barrierName,
+	})
+}
+
+// Results stores the results of Get operations indexed by transaction name and operation index
 type Results struct {
 	data map[string]map[int]int
 	mu   sync.RWMutex
@@ -228,24 +237,24 @@ func newResults() *Results {
 	}
 }
 
-// store saves a result for a specific transaction and step
-func (r *Results) store(txnName string, step int, value int) {
+// store saves a result for a specific transaction and operation index
+func (r *Results) store(txnName string, opIndex int, value int) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
 	if r.data[txnName] == nil {
 		r.data[txnName] = make(map[int]int)
 	}
-	r.data[txnName][step] = value
+	r.data[txnName][opIndex] = value
 }
 
-// Get retrieves the result of a Get operation for a specific transaction and step
-func (r *Results) Get(txnName string, step int) int {
+// Get retrieves the result of a Get operation for a specific transaction and operation index
+func (r *Results) Get(txnName string, opIndex int) int {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
 	if txnData, ok := r.data[txnName]; ok {
-		return txnData[step]
+		return txnData[opIndex]
 	}
 	return 0
 }

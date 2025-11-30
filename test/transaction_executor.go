@@ -170,6 +170,18 @@ func (t *Txn) Set(key, value int) {
 	})
 }
 
+// SetComputed schedules a Set operation with a value computed at execution time
+func (t *Txn) SetComputed(key int, valueFn func() int) {
+	t.addOp(operation{
+		kind:        opDatabase,
+		description: fmt.Sprintf("SET_COMPUTED %d = <computed>", key),
+		fn: func() error {
+			value := valueFn()
+			return t.db.Set(t.txnId, key, value)
+		},
+	})
+}
+
 // Get schedules a Get operation and captures the result, returning a reference to retrieve it later
 func (t *Txn) Get(key int) *GetResult {
 	currentOpIndex := t.opCounter

@@ -22,7 +22,7 @@ func TestDirtyReadWithBarriers(t *testing.T) {
 	txn2 := exec.NewTxn("txn2")
 	txn2.BeginTx()
 	txn2.WaitFor("txn1_after_write") // Wait for txn1 to write
-	txn2Read := txn2.Get(1)           // Should read the uncommitted value (dirty read)
+	txn2Read := txn2.Get(1)          // Should read the uncommitted value (dirty read)
 	txn2.Commit()
 
 	results := exec.Execute(false)
@@ -89,7 +89,7 @@ func TestComplexInterleaving(t *testing.T) {
 	txn2.WaitFor("setup_done")
 	txn2.BeginTx()
 	txn2.WaitFor("txn1_updated") // Wait for txn1 to update
-	txn2Read := txn2.Get(1)       // Should see txn1's uncommitted write (dirty read)
+	txn2Read := txn2.Get(1)      // Should see txn1's uncommitted write (dirty read)
 	txn2.Set(2, 20)
 	txn2.Commit()
 
@@ -109,43 +109,10 @@ func TestComplexInterleaving(t *testing.T) {
 	t.Logf("Complex interleaving test passed: txn1 read %d, txn2 read %d", value1, value2)
 }
 
-// TestLostUpdate demonstrates lost update anomaly
+// TestLostUpdate demonstrates lost update anomaly with actual increments
 func TestLostUpdate(t *testing.T) {
 	database := db.NewDatabaseReadUncommitted()
-	exec := NewTxnsExecutor(database)
-
-	// Setup: Initialize counter
-	setup := exec.NewTxn("setup")
-	setup.BeginTx()
-	setup.Set(1, 0)
-	setup.Commit()
-	setup.Barrier("setup_initialized")
-
-	// Transaction 1: Read and increment
-	txn1 := exec.NewTxn("txn1")
-	txn1.WaitFor("setup_initialized")
-	txn1.BeginTx()
-	txn1Read := txn1.Get(1)
-	txn1.Barrier("txn1_read")
-	txn1.Set(1, 1) // Increment from 0 to 1
-	txn1.Commit()
-
-	// Transaction 2: Also read and increment (creates lost update)
-	txn2 := exec.NewTxn("txn2")
-	txn2.WaitFor("setup_initialized")
-	txn2.BeginTx()
-	txn2.WaitFor("txn1_read") // Read after txn1 reads
-	txn2Read := txn2.Get(1)    // Might read 0 or 1 depending on isolation
-	txn2.Set(1, 1)             // Also sets to 1, potentially losing txn1's update
-	txn2.Commit()
-
-	results := exec.Execute(false)
-
-	value1 := results.GetValue(txn1Read)
-	value2 := results.GetValue(txn2Read)
-
-	t.Logf("Lost update test: txn1 read %d, txn2 read %d", value1, value2)
-	t.Log("Both transactions set counter to 1, demonstrating lost update")
+	TestLostUpdateIncrement(t, database)
 }
 
 // TestSequentialOperations tests simple sequential operations without barriers
@@ -197,4 +164,3 @@ func TestRollbackAfterBarrier(t *testing.T) {
 	}
 	t.Logf("Rollback test passed: read %d after rollback", value)
 }
-

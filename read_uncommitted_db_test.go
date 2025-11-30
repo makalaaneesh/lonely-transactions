@@ -21,3 +21,8 @@ func TestReadUncommittedDirtyWrite(t *testing.T) {
 	db := db.NewDatabaseReadUncommitted()
 	test.TestDirtyWrite(t, db)
 }
+
+func TestReadUncommittedLostUpdate(t *testing.T) {
+	db := db.NewDatabaseReadUncommitted()
+	test.TestLostUpdateIncrement(t, db)
+}

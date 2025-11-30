@@ -20,6 +20,7 @@ type operation struct {
 	fn          func() error // For database operations
 	barrierName string       // For Barrier and WaitFor operations
 	opIndex     int          // Index of this operation in the transaction
+	description string       // Human-readable description for debug output
 }
 
 // TxnsExecutor coordinates the execution of multiple transactions with barrier-based synchronization
@@ -104,24 +105,25 @@ func (t *Txn) run(barriers map[string]chan struct{}, debug bool) {
 	for _, op := range t.operations {
 		switch op.kind {
 		case opDatabase:
+			if debug {
+				fmt.Printf("[%s] (%d) %s\n", t.name, op.opIndex, op.description)
+			}
 			if err := op.fn(); err != nil {
 				fmt.Printf("Error in transaction %s at op %d: %v\n", t.name, op.opIndex, err)
 			}
-			if debug {
-				fmt.Printf("[%s] Completed database operation %d\n", t.name, op.opIndex)
-			}
 		case opBarrier:
-			close(barriers[op.barrierName])
 			if debug {
-				fmt.Printf("[%s] Signaled barrier: %s\n", t.name, op.barrierName)
+				fmt.Printf("[%s] (%d) BARRIER %s\n", t.name, op.opIndex, op.barrierName)
 			}
+			close(barriers[op.barrierName])
 		case opWaitFor:
 			if debug {
-				fmt.Printf("[%s] Waiting for barrier: %s\n", t.name, op.barrierName)
+				fmt.Printf("[%s] (%d) WAIT_FOR %s\n", t.name, op.opIndex, op.barrierName)
 			}
 			<-barriers[op.barrierName]
 			if debug {
-				fmt.Printf("[%s] Unblocked from barrier: %s\n", t.name, op.barrierName)
+				fmt.Printf("[%s] (%d) UNBLOCKED from %s\n", t.name, op.opIndex, op.barrierName)
+				t.db.PrintState()
 			}
 		}
 	}
@@ -139,7 +141,8 @@ func (t *Txn) addOp(op operation) {
 // BeginTx schedules a BeginTx operation
 func (t *Txn) BeginTx() {
 	t.addOp(operation{
-		kind: opDatabase,
+		kind:        opDatabase,
+		description: "BEGIN_TX",
 		fn: func() error {
 			txnId, err := t.db.BeginTx("READ_UNCOMMITTED")
 			if err != nil {
@@ -154,7 +157,8 @@ func (t *Txn) BeginTx() {
 // Set schedules a Set operation
 func (t *Txn) Set(key, value int) {
 	t.addOp(operation{
-		kind: opDatabase,
+		kind:        opDatabase,
+		description: fmt.Sprintf("SET %d = %d", key, value),
 		fn: func() error {
 			return t.db.Set(t.txnId, key, value)
 		},
@@ -165,7 +169,8 @@ func (t *Txn) Set(key, value int) {
 func (t *Txn) Get(key int) {
 	currentOpIndex := t.opCounter
 	t.addOp(operation{
-		kind: opDatabase,
+		kind:        opDatabase,
+		description: fmt.Sprintf("GET %d", key),
 		fn: func() error {
 			value, err := t.db.Get(t.txnId, key)
 			if err != nil {
@@ -181,7 +186,8 @@ func (t *Txn) Get(key int) {
 // Delete schedules a Delete operation
 func (t *Txn) Delete(key int) {
 	t.addOp(operation{
-		kind: opDatabase,
+		kind:        opDatabase,
+		description: fmt.Sprintf("DELETE %d", key),
 		fn: func() error {
 			return t.db.Delete(t.txnId, key)
 		},
@@ -191,7 +197,8 @@ func (t *Txn) Delete(key int) {
 // Commit schedules a Commit operation
 func (t *Txn) Commit() {
 	t.addOp(operation{
-		kind: opDatabase,
+		kind:        opDatabase,
+		description: "COMMIT",
 		fn: func() error {
 			return t.db.Commit(t.txnId)
 		},
@@ -201,7 +208,8 @@ func (t *Txn) Commit() {
 // Rollback schedules a Rollback operation
 func (t *Txn) Rollback() {
 	t.addOp(operation{
-		kind: opDatabase,
+		kind:        opDatabase,
+		description: "ROLLBACK",
 		fn: func() error {
 			return t.db.Rollback(t.txnId)
 		},

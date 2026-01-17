@@ -1,4 +1,4 @@
-package test
+package anomalytest
 
 import (
 	"fmt"
@@ -30,6 +30,16 @@ type operation struct {
 	timeout     time.Duration // For WaitForWithTimeout operations
 	opIndex     int           // Index of this operation in the transaction
 	description string        // Human-readable description for debug output
+}
+
+type Database interface {
+	BeginTx(isolationLevel string) (int64, error)
+	Set(txId int64, key int, value int) error
+	Get(txId int64, key int) (int, error)
+	Delete(txId int64, key int) error
+	Commit(txId int64) error
+	Rollback(txId int64) error
+	PrintState()
 }
 
 // TxnsExecutor coordinates the execution of multiple transactions with barrier-based synchronization

@@ -3,15 +3,17 @@ package test
 import (
 	"fmt"
 	"sync"
+	"time"
 )
 
 // opKind represents the type of operation
 type opKind int
 
 const (
-	opDatabase opKind = iota // Database operation (BeginTx, Set, Get, etc.)
-	opBarrier                // Barrier - signals a named synchronization point
-	opWaitFor                // WaitFor - waits for a named barrier
+	opDatabase           opKind = iota // Database operation (BeginTx, Set, Get, etc.)
+	opBarrier                          // Barrier - signals a named synchronization point
+	opWaitFor                          // WaitFor - waits for a named barrier
+	opWaitForWithTimeout               // WaitFor with timeout - continues after timeout if barrier not signaled
 )
 
 // GetResult is a reference to a Get operation's result
@@ -23,10 +25,11 @@ type GetResult struct {
 // operation represents a single operation in a transaction
 type operation struct {
 	kind        opKind
-	fn          func() error // For database operations
-	barrierName string       // For Barrier and WaitFor operations
-	opIndex     int          // Index of this operation in the transaction
-	description string       // Human-readable description for debug output
+	fn          func() error  // For database operations
+	barrierName string        // For Barrier and WaitFor operations
+	timeout     time.Duration // For WaitForWithTimeout operations
+	opIndex     int           // Index of this operation in the transaction
+	description string        // Human-readable description for debug output
 }
 
 // TxnsExecutor coordinates the execution of multiple transactions with barrier-based synchronization
@@ -129,6 +132,20 @@ func (t *Txn) run(barriers map[string]chan struct{}, debug bool) {
 			<-barriers[op.barrierName]
 			if debug {
 				fmt.Printf("[%s] (%d) UNBLOCKED from %s\n", t.name, op.opIndex, op.barrierName)
+			}
+		case opWaitForWithTimeout:
+			if debug {
+				fmt.Printf("[%s] (%d) WAIT_FOR_WITH_TIMEOUT %s (%v)\n", t.name, op.opIndex, op.barrierName, op.timeout)
+			}
+			select {
+			case <-barriers[op.barrierName]:
+				if debug {
+					fmt.Printf("[%s] (%d) UNBLOCKED from %s (barrier signaled)\n", t.name, op.opIndex, op.barrierName)
+				}
+			case <-time.After(op.timeout):
+				if debug {
+					fmt.Printf("[%s] (%d) TIMEOUT waiting for %s (continuing)\n", t.name, op.opIndex, op.barrierName)
+				}
 			}
 		}
 	}
@@ -253,6 +270,17 @@ func (t *Txn) WaitFor(barrierName string) {
 	t.addOp(operation{
 		kind:        opWaitFor,
 		barrierName: barrierName,
+	})
+}
+
+// WaitForWithTimeout waits for a named barrier but continues after timeout if not signaled.
+// This is useful for testing blocking behavior - if the other transaction is blocked (e.g., on a row lock),
+// the barrier won't be signaled, and this transaction continues after the timeout.
+func (t *Txn) WaitForWithTimeout(barrierName string, timeout time.Duration) {
+	t.addOp(operation{
+		kind:        opWaitForWithTimeout,
+		barrierName: barrierName,
+		timeout:     timeout,
 	})
 }
 

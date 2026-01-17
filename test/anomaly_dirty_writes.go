@@ -22,8 +22,8 @@ func TestDirtyWrite(t *testing.T, db Database) {
 	txn1.Set(1, 100) // first_place = racer1 (represented by 100)
 	txn1.Barrier("txn1_wrote_first")
 	// Use timeout-based wait: if T2's writes complete (no locking), we continue immediately.
-	// If T2 is blocked on row lock (proper isolation), we timeout and continue.
-	txn1.WaitForWithTimeout("txn2_wrote_second", 100*time.Millisecond)
+	// If T2 is blocked on row lock (depending on implementation), we timeout and continue.
+	txn1.WaitForWithTimeout("txn2_wrote_second", 1000*time.Millisecond)
 	txn1.PrintDbState()
 	txn1.Set(2, 200) // second_place = racer2 (dirty write over T2 in read-uncommitted!)
 	txn1.Commit()
@@ -34,7 +34,7 @@ func TestDirtyWrite(t *testing.T, db Database) {
 	txn2.BeginTx()
 	txn2.WaitFor("txn1_wrote_first") // Wait for T1's first write
 	txn2.PrintDbState()
-	txn2.Set(1, 200) // first_place = racer2 - BLOCKS in read-committed (T1 has lock), succeeds in read-uncommitted
+	txn2.Set(1, 200) // first_place = racer2
 	txn2.Set(2, 100) // second_place = racer1
 	txn2.Barrier("txn2_wrote_second")
 	txn2.WaitFor("txn1_committed")

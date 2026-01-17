@@ -5,15 +5,15 @@ import (
 	"sync"
 )
 
-type DatabaseReadUncommitted struct {
+type SimpleDBReadUncommittedWriteLock struct {
 	data       map[int]int
 	mu         sync.RWMutex
 	nextTxnId  int64
 	txnUndoOps map[int64][]func()
 }
 
-func NewDatabaseReadUncommitted() *DatabaseReadUncommitted {
-	return &DatabaseReadUncommitted{
+func NewSimpleDBReadUncommittedWriteLock() *SimpleDBReadUncommittedWriteLock {
+	return &SimpleDBReadUncommittedWriteLock{
 		data:       make(map[int]int),
 		mu:         sync.RWMutex{},
 		nextTxnId:  1,
@@ -21,7 +21,7 @@ func NewDatabaseReadUncommitted() *DatabaseReadUncommitted {
 	}
 }
 
-func (d *DatabaseReadUncommitted) BeginTx(isolationLevel string) (int64, error) {
+func (d *SimpleDBReadUncommittedWriteLock) BeginTx(isolationLevel string) (int64, error) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	txId := d.nextTxnId
@@ -31,7 +31,7 @@ func (d *DatabaseReadUncommitted) BeginTx(isolationLevel string) (int64, error) 
 	return txId, nil
 }
 
-func (d *DatabaseReadUncommitted) Set(txId int64, key int, value int) error {
+func (d *SimpleDBReadUncommittedWriteLock) Set(txId int64, key int, value int) error {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	oldValue, ok := d.data[key]
@@ -48,13 +48,13 @@ func (d *DatabaseReadUncommitted) Set(txId int64, key int, value int) error {
 	return nil
 }
 
-func (d *DatabaseReadUncommitted) Get(txId int64, key int) (int, error) {
+func (d *SimpleDBReadUncommittedWriteLock) Get(txId int64, key int) (int, error) {
 	d.mu.RLock()
 	defer d.mu.RUnlock()
 	return d.data[key], nil
 }
 
-func (d *DatabaseReadUncommitted) Delete(txId int64, key int) error {
+func (d *SimpleDBReadUncommittedWriteLock) Delete(txId int64, key int) error {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	oldValue, ok := d.data[key]
@@ -67,14 +67,14 @@ func (d *DatabaseReadUncommitted) Delete(txId int64, key int) error {
 	return nil
 }
 
-func (d *DatabaseReadUncommitted) Commit(txId int64) error {
+func (d *SimpleDBReadUncommittedWriteLock) Commit(txId int64) error {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	delete(d.txnUndoOps, txId)
 	return nil
 }
 
-func (d *DatabaseReadUncommitted) Rollback(txId int64) error {
+func (d *SimpleDBReadUncommittedWriteLock) Rollback(txId int64) error {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 	// apply undo operations for this txn in reverse order
@@ -85,7 +85,7 @@ func (d *DatabaseReadUncommitted) Rollback(txId int64) error {
 	return nil
 }
 
-func (d *DatabaseReadUncommitted) PrintState() {
+func (d *SimpleDBReadUncommittedWriteLock) PrintState() {
 	d.mu.RLock()
 	defer d.mu.RUnlock()
 	fmt.Println("--------------------------------")

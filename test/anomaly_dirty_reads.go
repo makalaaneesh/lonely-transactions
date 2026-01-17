@@ -80,7 +80,7 @@ func TestDirtyReadCommit_G1b(t *testing.T, db Database) {
 	assert.Equal(t, 100, value3)
 }
 
-// TestCircularInformationFlow_G1c tests that Circular Information Flow (G1c) is prevented.
+// TestDirtyReadCircularInformationFlow_G1c tests that Circular Information Flow (G1c) is prevented.
 // This anomaly occurs when two transactions each read the other's uncommitted writes,
 // creating a circular dependency.
 //
@@ -101,7 +101,7 @@ func TestDirtyReadCommit_G1b(t *testing.T, db Database) {
 // should see the other's uncommitted writes.
 //
 // https://github.com/ept/hermitage/blob/master/postgres.md#read-committed-basic-requirements-g0-g1a-g1b-g1c
-func TestCircularInformationFlow_G1c(t *testing.T, db Database) {
+func TestDirtyReadCircularInformationFlow_G1c(t *testing.T, db Database) {
 	exec := NewTxnsExecutor(db)
 
 	// Setup initial state: key 1 = 10, key 2 = 20

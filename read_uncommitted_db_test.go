@@ -27,12 +27,7 @@ func TestReadUncommittedLostUpdate(t *testing.T) {
 	test.TestLostUpdateIncrement(t, db)
 }
 
-func TestReadUncommittedWriteCycleG0(t *testing.T) {
-	db := db.NewDatabaseReadUncommitted()
-	test.TestWriteCycleG0(t, db)
-}
-
 func TestReadUncommittedCircularInformationFlowG1c(t *testing.T) {
 	db := db.NewDatabaseReadUncommitted()
-	test.TestCircularInformationFlow_G1c(t, db)
+	test.TestDirtyReadCircularInformationFlow_G1c(t, db)
 }

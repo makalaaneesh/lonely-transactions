@@ -102,3 +102,5 @@ Both implementations allow dirty reads (that's what read uncommitted means), but
 - [A Critique of ANSI SQL Isolation Levels](https://www.microsoft.com/en-us/research/wp-content/uploads/2016/02/tr-95-51.pdf)
 - [Stack Overflow: Dirty Writes Explanation](https://stackoverflow.com/a/66181531)
 
+Next Steps:
+- Implement read committed.
